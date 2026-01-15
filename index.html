@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>S-PTV Fast Tester</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/shaka-player/4.3.5/shaka-player.ui.min.js"></script>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    
+    <style>
+        body { 
+            background: #000; color: #fff; font-family: 'Segoe UI', sans-serif; 
+            margin: 0; padding: 0; width: 100vw; height: 100vh; 
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+
+        /* ইনপুট বক্স ডিজাইন */
+        .input-area {
+            position: absolute; top: 20px; z-index: 100;
+            width: 90%; max-width: 800px; padding: 10px; background: rgba(20, 20, 20, 0.9); 
+            display: flex; flex-wrap: wrap; gap: 8px; border-radius: 8px; border: 1px solid #333;
+        }
+        input { flex: 1 1 200px; padding: 10px; background: #2a2a2a; border: 1px solid #444; color: white; border-radius: 4px; outline: none; }
+        button#play-btn { padding: 10px 25px; background: #e50914; color: white; border: none; cursor: pointer; font-weight: bold; border-radius: 4px; }
+
+        /* ভিডিও কন্টেইনার (16:9 ফিক্সড) */
+        .video-container { 
+            width: 100%; max-width: 1000px; aspect-ratio: 16/9; 
+            background: #000; position: relative; box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        video { width: 100%; height: 100%; object-fit: contain; }
+
+        /* স্পিনার */
+        .spinner {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            width: 60px; height: 60px; border: 5px solid rgba(255,255,255,0.2);
+            border-top: 5px solid #e50914; border-radius: 50%;
+            animation: spin 0.8s linear infinite; z-index: 25; display: none; pointer-events: none;
+        }
+        @keyframes spin { 0% { transform: translate(-50%, -50%) rotate(0deg); } 100% { transform: translate(-50%, -50%) rotate(360deg); } }
+
+        /* সেন্টার বাটন */
+        .center-overlay {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            display: flex; align-items: center; gap: 40px; z-index: 10; opacity: 0; transition: opacity 0.3s;
+            pointer-events: none;
+        }
+        .center-btn {
+            background: rgba(0,0,0,0.6); border: none; color: white; border-radius: 50%; padding: 12px;
+            cursor: pointer; display: flex; align-items: center; justify-content: center; pointer-events: auto;
+        }
+        .center-btn:active { transform: scale(0.9); background: rgba(255,255,255,0.2); }
+        .material-icons.large { font-size: 45px; } .material-icons.medium { font-size: 30px; }
+
+        /* নিচের কন্ট্রোলস (ভিডিওর ভেতরে) */
+        .custom-controls {
+            position: absolute; bottom: 0; left: 0; width: 100%;
+            background: linear-gradient(to top, rgba(0,0,0,0.9), transparent);
+            padding: 10px 15px; box-sizing: border-box;
+            display: flex; flex-direction: column; gap: 5px; 
+            opacity: 0; transition: opacity 0.3s; z-index: 20;
+        }
+        .seek-bar-container { width: 100%; height: 5px; background: rgba(255,255,255,0.3); cursor: pointer; position: relative; }
+        .seek-fill { height: 100%; background: #e50914; width: 0%; position: absolute; top: 0; left: 0; }
+        .buttons-row { display: flex; justify-content: space-between; align-items: center; }
+        .left-buttons, .right-buttons { display: flex; gap: 10px; align-items: center; }
+        .icon-btn { background: none; border: none; color: white; cursor: pointer; padding: 5px; display: flex; }
+        .material-icons { font-size: 28px; text-shadow: 0 0 5px rgba(0,0,0,0.8); }
+        .time-text { font-size: 13px; font-weight: bold; margin-left: 5px; cursor: pointer; text-shadow: 0 0 5px rgba(0,0,0,0.8); }
+
+        /* পপআপ */
+        .popup-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 30; display: none; }
+        .popup-menu {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            background: #1a1a1a; border: 1px solid #444; border-radius: 10px;
+            width: 260px; max-height: 80%; overflow-y: auto; display: none; flex-direction: column; z-index: 35;
+        }
+        .popup-item { padding: 12px 15px; cursor: pointer; font-size: 13px; color: #ccc; display: flex; justify-content: space-between; border-bottom: 1px solid #222; }
+        .kbps { font-size: 11px; color: #777; }
+        
+        #error-msg { position: absolute; top: 40%; width: 100%; text-align: center; color: #ff4444; font-size: 16px; display: none; z-index: 5; background: rgba(0,0,0,0.7); padding: 5px;}
+    </style>
+</head>
+<body>
+
+    <!-- ইনপুট বক্স -->
+    <div class="input-area">
+        <input type="text" id="url" placeholder="URL">
+        <input type="text" id="k1" placeholder="Key ID">
+        <input type="text" id="k2" placeholder="Key Value">
+        <button id="play-btn" onclick="loadManualVideo()">PLAY</button>
+    </div>
+
+    <div class="video-container" id="video-container" onclick="toggleControls()">
+        <video id="video" autoplay playsinline></video>
+        <div id="error-msg"></div>
+        <div class="spinner" id="buffering-spinner"></div>
+
+        <div class="center-overlay" id="center-controls">
+            <button class="center-btn" onclick="event.stopPropagation(); skip(-10)"><span class="material-icons medium">replay_10</span></button>
+            <button class="center-btn" onclick="event.stopPropagation(); togglePlay()"><span class="material-icons large" id="center-play-icon">pause</span></button>
+            <button class="center-btn" onclick="event.stopPropagation(); skip(10)"><span class="material-icons medium">forward_10</span></button>
+        </div>
+
+        <div class="popup-overlay" id="popup-overlay" onclick="closeAllMenus()"></div>
+        <div class="popup-menu" id="quality-menu"></div>
+        <div class="popup-menu" id="audio-menu"></div>
+
+        <div class="custom-controls" id="controls" onclick="event.stopPropagation()">
+            <div class="seek-bar-container" onclick="seekVideo(event)"><div class="seek-fill" id="seek-fill"></div></div>
+            <div class="buttons-row">
+                <div class="left-buttons">
+                    <button class="icon-btn" onclick="togglePlay()"><span class="material-icons" id="play-icon">pause</span></button>
+                    <button class="icon-btn" onclick="toggleMute()"><span class="material-icons" id="vol-icon">volume_up</span></button>
+                    <span class="time-text" id="time-display" onclick="goLive()">0:00</span>
+                </div>
+                <div class="right-buttons">
+                    <button class="icon-btn" onclick="openMenu('quality-menu')"><span class="material-icons">settings</span></button>
+                    <button class="icon-btn" onclick="openMenu('audio-menu')"><span class="material-icons">language</span></button>
+                    <button class="icon-btn" onclick="togglePiP()"><span class="material-icons">picture_in_picture_alt</span></button>
+                    <button class="icon-btn" onclick="toggleFull()"><span class="material-icons">fullscreen</span></button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        const CF_WORKER = ''; // প্রক্সি লিংক (যদি লাগে)
+        // ==========================================
+
+        let player;
+        const video = document.getElementById('video');
+        const spinner = document.getElementById('buffering-spinner');
+        const errorMsg = document.getElementById('error-msg');
+        let hideTimeout;
+
+        async function init() {
+            shaka.polyfill.installAll();
+            if (shaka.Player.isBrowserSupported()) {
+                player = new shaka.Player(video);
+                player.addEventListener('error', console.error);
+                player.addEventListener('buffering', (e) => spinner.style.display = e.buffering ? 'block' : 'none');
+                
+                // Proxy Logic
+                player.getNetworkingEngine().registerRequestFilter(function(type, request) {
+                    if (CF_WORKER && CF_WORKER.startsWith('http')) {
+                        request.uris = request.uris.map(uri => CF_WORKER + '?url=' + encodeURIComponent(uri));
+                    }
+                });
+            } else {
+                showError("Browser Not Supported");
+            }
+        }
+
+        async function loadManualVideo() {
+            const url = document.getElementById('url').value.trim();
+            const k1 = document.getElementById('k1').value.trim();
+            const k2 = document.getElementById('k2').value.trim();
+
+            if(!url) { showError("Enter URL"); return; }
+            errorMsg.style.display = 'none';
+
+            // 🔥 Instant Start Logic (Force Live Edge)
+            const config = {
+                streaming: { 
+                    bufferingGoal: 0.5, // বাফার একদম কম
+                    rebufferingGoal: 0.01, // সাথে সাথে চালু হবে
+                    bufferBehind: 0, 
+                    lowLatencyMode: true, 
+                    jumpLargeGaps: true 
+                },
+                manifest: {
+                    dash: {
+                        ignoreSuggestedPresentationDelay: true, // সার্ভারের ডিলে মানবে না
+                        clockSyncUri: '' // টাইম সিঙ্ক বন্ধ
+                    }
+                },
+                abr: { enabled: true, defaultBandwidthEstimate: 400000 }
+            };
+
+            if (k1 && k2) config.drm = { clearKeys: { [k1]: k2 } };
+            
+            player.configure(config);
+            try {
+                await player.load(url);
+                // জোর করে লাইভ পজিশনে নিয়ে যাওয়া
+                if (player.isLive()) {
+                    video.currentTime = player.seekRange().end - 0.1;
+                }
+                startTimer();
+                updateMenus();
+                showControls();
+            } catch (e) { showError("Offline / Error"); }
+        }
+
+        function showError(msg) {
+            errorMsg.style.display = 'block';
+            errorMsg.innerText = msg;
+            spinner.style.display = 'none';
+        }
+
+        function openMenu(id) { closeAllMenus(); document.getElementById('popup-overlay').style.display = 'block'; document.getElementById(id).style.display = 'flex'; }
+        function closeAllMenus() { document.getElementById('popup-overlay').style.display = 'none'; document.querySelectorAll('.popup-menu').forEach(m => m.style.display = 'none'); }
+        
+        function updateMenus() {
+            const q = document.getElementById('quality-menu');
+            q.innerHTML = `<div style="padding:12px;font-weight:bold;border-bottom:1px solid #333;display:flex;justify-content:space-between">Quality <span onclick="closeAllMenus()" style="cursor:pointer">×</span></div><div class="popup-item" onclick="setQ('auto')">Auto <span class="kbps">Rec.</span></div>`;
+            const tracks = player.getVariantTracks();
+            const seen = new Set();
+            tracks.sort((a,b) => b.height - a.height).forEach(t => {
+                if(t.height && !seen.has(t.height)) {
+                    seen.add(t.height);
+                    q.innerHTML += `<div class="popup-item" onclick="setQ(${t.height})">${t.height}p <span class="kbps">${Math.round(t.bandwidth/1000)} kbps</span></div>`;
+                }
+            });
+            const a = document.getElementById('audio-menu');
+            a.innerHTML = `<div style="padding:12px;font-weight:bold;border-bottom:1px solid #333;display:flex;justify-content:space-between">Audio <span onclick="closeAllMenus()" style="cursor:pointer">×</span></div>`;
+            player.getAudioLanguages().forEach(l => a.innerHTML += `<div class="popup-item" onclick="setA('${l}')">${l.toUpperCase()}</div>`);
+        }
+
+        function setQ(h) { h==='auto'?player.configure({abr:{enabled:true}}):(player.configure({abr:{enabled:false}}),player.selectVariantTrack(player.getVariantTracks().find(x=>x.height==h),true)); closeAllMenus(); }
+        function setA(l) { player.selectAudioLanguage(l); closeAllMenus(); }
+
+        function startTimer() {
+            video.ontimeupdate = () => {
+                if(player.isLive()) {
+                    const lat = player.seekRange().end - video.currentTime;
+                    lat < 5 ? (document.getElementById('time-display').innerHTML = '<span style="color:#e50914">●</span> LIVE', document.getElementById('seek-fill').style.width = '100%') 
+                            : (document.getElementById('time-display').innerText = "-" + formatTime(lat), document.getElementById('time-display').style.color = "#ccc", document.getElementById('seek-fill').style.width = (((video.currentTime - player.seekRange().start)/(player.seekRange().end - player.seekRange().start))*100) + '%');
+                } else {
+                    document.getElementById('seek-fill').style.width = ((video.currentTime/video.duration)*100) + '%';
+                    document.getElementById('time-display').innerText = formatTime(video.currentTime) + " / " + formatTime(video.duration);
+                }
+            };
+        }
+        function formatTime(s) { const m = Math.floor(s / 60), sec = Math.floor(s % 60); return `${m}:${sec < 10 ? '0' : ''}${sec}`; }
+        function skip(v) { video.currentTime += v; showControls(); }
+        function goLive() { if(player.isLive()) video.currentTime = player.seekRange().end - 0.5; }
+        function seekVideo(e) { const r = e.currentTarget.getBoundingClientRect(), p = (e.clientX - r.left) / r.width; player.isLive() ? video.currentTime = player.seekRange().start + ((player.seekRange().end - player.seekRange().start) * p) : video.currentTime = p * video.duration; }
+        function togglePlay() { video.paused ? (video.play(), updIcon('pause')) : (video.pause(), updIcon('play_arrow')); showControls(); }
+        function updIcon(i) { document.getElementById('play-icon').innerText = i; document.getElementById('center-play-icon').innerText = i; }
+        function toggleMute() { video.muted = !video.muted; document.getElementById('vol-icon').innerText = video.muted ? 'volume_off' : 'volume_up'; }
+        function toggleFull() { !document.fullscreenElement ? document.getElementById('video-container').requestFullscreen() : document.exitFullscreen(); }
+        function togglePiP() { document.pictureInPictureElement ? document.exitPictureInPicture() : video.requestPictureInPicture(); }
+        function toggleControls() { document.getElementById('controls').style.opacity === '1' ? hideControls() : showControls(); }
+        function showControls() { document.getElementById('controls').style.opacity = '1'; document.getElementById('center-controls').style.opacity = '1'; document.getElementById('video-container').style.cursor = 'default'; clearTimeout(hideTimeout); if(!video.paused) hideTimeout = setTimeout(hideControls, 3000); }
+        function hideControls() { if(!video.paused && document.getElementById('popup-overlay').style.display !== 'block') { document.getElementById('controls').style.opacity = '0'; document.getElementById('center-controls').style.opacity = '0'; document.getElementById('video-container').style.cursor = 'none'; } }
+
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>
