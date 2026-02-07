@@ -44,7 +44,6 @@
 </head>
 <body>
     <div class="video-container" id="video-container" onclick="toggleControls()">
-        <!-- Autoplay removed to fix Akamai issues -->
         <video id="video" playsinline></video>
         <div class="brand-overlay"><img src="https://i.ibb.co/Xr4DHqDL/1000298705-removebg-preview.png" class="brand-logo"><span class="brand-text">SPORTIFY TV</span></div>
         <div id="error-msg">Loading...</div>
@@ -100,7 +99,7 @@
                     let drmConfig = {};
                     if (k1 && k2) drmConfig = { clearKeys: { [k1]: k2 } };
 
-                    // Show Tap to Play initially
+                    // Start: User Interaction Logic
                     errorMsg.innerText = "Tap to Play";
                     errorMsg.style.display = 'block';
                     errorMsg.style.color = "#fff";
@@ -108,25 +107,23 @@
                     
                     const container = document.getElementById('video-container');
                     
-                    // Universal Click Handler for Akamai/Event streams
                     const startHandler = () => {
                         if (!isFirstClick) return;
                         isFirstClick = false;
                         
-                        // Show loading state
                         errorMsg.innerText = "Loading...";
                         spinner.style.display = 'block';
                         
-                        // Small delay to ensure browser registers the gesture
+                        // Delay to register gesture
                         setTimeout(() => {
                             loadPlayer(directLink, drmConfig);
                         }, 400);
 
-                        // Remove handler so it doesn't trigger again
                         container.removeEventListener('click', startHandler);
                     };
                     
                     container.addEventListener('click', startHandler);
+                    // End: User Interaction Logic
 
                 } else {
                     showError("Error: Use ?play=URL");
@@ -136,6 +133,16 @@
 
         async function loadPlayer(url, drmConfig) {
             errorMsg.style.display = 'none';
+            
+            // Fixed DASH Detection Logic: Ignores query params
+            let isDash = false;
+            try {
+                const u = new URL(url);
+                isDash = u.pathname.endsWith('.mpd');
+            } catch(e) {
+                isDash = url.includes('.mpd');
+            }
+
             const config = {
                 streaming: { 
                     bufferingGoal: 10, 
@@ -143,18 +150,23 @@
                     startAtSegmentBoundary: true,
                     lowLatencyMode: true
                 },
-                manifest: {
-                    dash: {
-                        ignoreMinBufferTime: true 
-                    }
-                },
                 abr: { enabled: true, defaultBandwidthEstimate: 400000 },
                 drm: drmConfig
             };
             
+            // Apply DASH specific config only if DASH is detected
+            if (isDash) {
+                config.manifest = {
+                    dash: {
+                        ignoreMinBufferTime: true
+                    }
+                };
+            }
+            
             player.configure(config);
             try {
                 await player.load(url);
+
                 try { 
                     video.muted = false; 
                     await video.play(); 
