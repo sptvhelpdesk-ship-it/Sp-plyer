@@ -44,7 +44,8 @@
 </head>
 <body>
     <div class="video-container" id="video-container" onclick="toggleControls()">
-        <video id="video" autoplay playsinline></video>
+        <!-- Autoplay removed to fix Akamai issues -->
+        <video id="video" playsinline></video>
         <div class="brand-overlay"><img src="https://i.ibb.co/Xr4DHqDL/1000298705-removebg-preview.png" class="brand-logo"><span class="brand-text">SPORTIFY TV</span></div>
         <div id="error-msg">Loading...</div>
         <div class="spinner" id="buffering-spinner"></div>
@@ -77,6 +78,7 @@
     <script>
         const CF_WORKER = ''; 
         let player, video = document.getElementById('video'), spinner = document.getElementById('buffering-spinner'), errorMsg = document.getElementById('error-msg'), hideTimeout;
+        let isFirstClick = true;
 
         async function init() {
             shaka.polyfill.installAll();
@@ -97,7 +99,35 @@
                 if (directLink) {
                     let drmConfig = {};
                     if (k1 && k2) drmConfig = { clearKeys: { [k1]: k2 } };
-                    loadPlayer(directLink, drmConfig);
+
+                    // Show Tap to Play initially
+                    errorMsg.innerText = "Tap to Play";
+                    errorMsg.style.display = 'block';
+                    errorMsg.style.color = "#fff";
+                    errorMsg.style.cursor = "pointer";
+                    
+                    const container = document.getElementById('video-container');
+                    
+                    // Universal Click Handler for Akamai/Event streams
+                    const startHandler = () => {
+                        if (!isFirstClick) return;
+                        isFirstClick = false;
+                        
+                        // Show loading state
+                        errorMsg.innerText = "Loading...";
+                        spinner.style.display = 'block';
+                        
+                        // Small delay to ensure browser registers the gesture
+                        setTimeout(() => {
+                            loadPlayer(directLink, drmConfig);
+                        }, 400);
+
+                        // Remove handler so it doesn't trigger again
+                        container.removeEventListener('click', startHandler);
+                    };
+                    
+                    container.addEventListener('click', startHandler);
+
                 } else {
                     showError("Error: Use ?play=URL");
                 }
@@ -106,17 +136,16 @@
 
         async function loadPlayer(url, drmConfig) {
             errorMsg.style.display = 'none';
-            // 🔥 সেইম কনফিগারেশন যা আপনার বন্ধুর প্লেয়ারে আছে
             const config = {
                 streaming: { 
-                    bufferingGoal: 10, // একটু বাফার টাইম দেওয়া হলো
+                    bufferingGoal: 10, 
                     rebufferingGoal: 2, 
                     startAtSegmentBoundary: true,
                     lowLatencyMode: true
                 },
                 manifest: {
                     dash: {
-                        ignoreMinBufferTime: true // সার্ভারের ডিলে উপেক্ষা করবে
+                        ignoreMinBufferTime: true 
                     }
                 },
                 abr: { enabled: true, defaultBandwidthEstimate: 400000 },
@@ -126,14 +155,20 @@
             player.configure(config);
             try {
                 await player.load(url);
-                try { video.muted = false; await video.play(); } catch { video.muted = true; await video.play(); }
+                try { 
+                    video.muted = false; 
+                    await video.play(); 
+                } catch { 
+                    video.muted = true; 
+                    await video.play(); 
+                }
                 startTimer();
                 updateMenus();
                 showControls();
             } catch (e) { showError("Stream Offline"); }
         }
 
-        function showError(msg) { errorMsg.style.display = 'block'; errorMsg.innerText = msg; spinner.style.display = 'none'; }
+        function showError(msg) { errorMsg.style.display = 'block'; errorMsg.innerText = msg; errorMsg.style.color = "#ff4444"; spinner.style.display = 'none'; }
         function openMenu(id) { closeAllMenus(); document.getElementById('popup-overlay').style.display = 'block'; document.getElementById(id).style.display = 'flex'; }
         function closeAllMenus() { document.getElementById('popup-overlay').style.display = 'none'; document.querySelectorAll('.popup-menu').forEach(m => m.style.display = 'none'); }
         function updateMenus() { 
